@@ -85,11 +85,9 @@ impl Send {
             || fields.contains_key("keep-alive")
             || fields.contains_key("proxy-connection")
         {
-            tracing::debug!("illegal connection-specific headers found");
             return Err(UserError::MalformedHeaders);
         } else if let Some(te) = fields.get(http::header::TE) {
             if te != "trailers" {
-                tracing::debug!("illegal connection-specific headers found");
                 return Err(UserError::MalformedHeaders);
             }
         }
@@ -107,11 +105,6 @@ impl Send {
             return Err(UserError::PeerDisabledServerPush);
         }
 
-        tracing::trace!(
-            "send_push_promise; frame={:?}; init_window={:?}",
-            frame,
-            self.init_window_sz
-        );
 
         Self::check_headers(frame.fields())?;
 
@@ -130,11 +123,6 @@ impl Send {
         counts: &mut Counts,
         task: &mut Option<Waker>,
     ) -> Result<(), UserError> {
-        tracing::trace!(
-            "send_headers; frame={:?}; init_window={:?}",
-            frame,
-            self.init_window_sz
-        );
 
         Self::check_headers(frame.fields())?;
 
@@ -182,26 +170,8 @@ impl Send {
         let is_empty = stream.pending_send.is_empty();
         let stream_id = stream.id;
 
-        tracing::trace!(
-            "send_reset(..., reason={:?}, initiator={:?}, stream={:?}, ..., \
-             is_reset={:?}; is_closed={:?}; pending_send.is_empty={:?}; \
-             state={:?} \
-             ",
-            reason,
-            initiator,
-            stream_id,
-            is_reset,
-            is_closed,
-            is_empty,
-            stream.state
-        );
-
         if is_reset {
             // Don't double reset
-            tracing::trace!(
-                " -> not sending RST_STREAM ({:?} is already reset)",
-                stream_id
-            );
             return;
         }
 
@@ -211,11 +181,6 @@ impl Send {
         // If closed AND the send queue is flushed, then the stream cannot be
         // reset explicitly, either. Implicit resets can still be queued.
         if is_closed && is_empty {
-            tracing::trace!(
-                " -> not sending explicit RST_STREAM ({:?} was closed \
-                 and send queue was flushed)",
-                stream_id
-            );
             return;
         }
 
@@ -227,7 +192,6 @@ impl Send {
 
         let frame = frame::Reset::new(stream.id, reason);
 
-        tracing::trace!("send_reset -- queueing; frame={:?}", frame);
         self.prioritize
             .queue_frame(frame.into(), buffer, stream, task);
         self.prioritize.reclaim_all_capacity(stream, counts);
@@ -281,7 +245,6 @@ impl Send {
 
         stream.state.send_close();
 
-        tracing::trace!("send_trailers -- queuing; frame={:?}", frame);
         self.prioritize
             .queue_frame(frame.into(), buffer, stream, task);
 
@@ -375,8 +338,6 @@ impl Send {
         task: &mut Option<Waker>,
     ) -> Result<(), Reason> {
         if let Err(e) = self.prioritize.recv_stream_window_update(sz, stream) {
-            tracing::debug!("recv_stream_window_update !!; err={:?}", e);
-
             self.send_reset(
                 Reason::FLOW_CONTROL_ERROR,
                 Initiator::Library,
@@ -460,18 +421,10 @@ impl Send {
                 Ordering::Less => {
                     // We must decrease the (remote) window on every open stream.
                     let dec = old_val - val;
-                    tracing::trace!("decrementing all windows; dec={}", dec);
-
                     let mut total_reclaimed = 0;
                     store.try_for_each(|mut stream| {
                         let stream = &mut *stream;
 
-                        tracing::trace!(
-                            "decrementing stream window; id={:?}; decr={}; flow={:?}",
-                            stream.id,
-                            dec,
-                            stream.send_flow
-                        );
 
                         // TODO: this decrement can underflow based on received frames!
                         stream
@@ -487,7 +440,7 @@ impl Send {
                         // and reassign it to other streams.
                         let window_size = stream.send_flow.window_size();
                         let available = stream.send_flow.available().as_size();
-                        let reclaimed = if available > window_size {
+                        if available > window_size {
                             // Drop down to `window_size`.
                             let reclaim = available - window_size;
                             stream
@@ -495,18 +448,7 @@ impl Send {
                                 .claim_capacity(reclaim)
                                 .map_err(proto::Error::library_go_away)?;
                             total_reclaimed += reclaim;
-                            reclaim
-                        } else {
-                            0
                         };
-
-                        tracing::trace!(
-                            "decremented stream window; id={:?}; decr={}; reclaimed={}; flow={:?}",
-                            stream.id,
-                            dec,
-                            reclaimed,
-                            stream.send_flow
-                        );
 
                         // TODO: Should this notify the producer when the capacity
                         // of a stream is reduced? Maybe it should if the capacity

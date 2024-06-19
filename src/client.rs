@@ -150,7 +150,6 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use std::usize;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tracing::Instrument;
 
 /// Initializes new HTTP/2 streams on a connection by sending a request.
 ///
@@ -1261,7 +1260,6 @@ where
     let builder = Builder::new();
     builder
         .handshake(io)
-        .instrument(tracing::trace_span!("client_handshake"))
         .await
 }
 
@@ -1271,12 +1269,8 @@ async fn bind_connection<T>(io: &mut T) -> Result<(), crate::Error>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    tracing::debug!("binding client connection");
-
     let msg: &'static [u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
     io.write_all(msg).await.map_err(crate::Error::from_io)?;
-
-    tracing::debug!("client connection bound");
 
     Ok(())
 }

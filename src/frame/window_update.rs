@@ -1,5 +1,4 @@
 use crate::frame::{self, Error, Head, Kind, StreamId};
-
 use bytes::BufMut;
 
 const SIZE_INCREMENT_MASK: u32 = 1 << 31;
@@ -48,7 +47,6 @@ impl WindowUpdate {
     }
 
     pub fn encode<B: BufMut>(&self, dst: &mut B) {
-        tracing::trace!("encoding WINDOW_UPDATE; id={:?}", self.stream_id);
         let head = Head::new(Kind::WindowUpdate, 0, self.stream_id);
         head.encode(4, dst);
         dst.put_u32(self.size_increment);
